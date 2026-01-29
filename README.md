@@ -1,6 +1,3 @@
-# RL-Trading-Agent
-Custom RL trading environment + DQN agent with leverage/fees/borrowing costs; feature engineering with RSI/EMA/MACD and evaluation tools. 
-
 # RL Margin Trading Agent
 
 A reinforcement learning trading agent trained using DQN in a custom Gymnasium environment.
