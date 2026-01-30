@@ -17,7 +17,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 
 # Global configuration
-SEED = 42
+SEED = 77
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -199,8 +199,18 @@ class MarginTradingEnv(gym.Env):
                 self.shares_held = 0
                 self.trades.append((self.current_step, price, "sell"))
 
+                # Repay margin debt using available cash
+                repay = min(self.cash, self.borrowed)
+                self.cash -= repay
+                self.borrowed -= repay
+
         # Apply interest cost to remaining cash
         self.cash = max(self.cash - interest_cost, 0.0)
+
+        # Repay debt whenever possible
+        repay = min(self.cash, self.borrowed)
+        self.cash -= repay
+        self.borrowed -= repay
 
         # Move to the next timestep
         self.current_step += 1
@@ -270,7 +280,7 @@ def run_episode(policy_fn, seed=None):
 
 def policy_dqn(env, obs):
     # Deterministic policy from the trained DQN
-    action, _ = model.predict(obs, deterministic=True)
+    action, _ = model.predict(obs, deterministic=False)
     return int(action)
 
 
@@ -309,7 +319,7 @@ for i in range(N_EVAL):
     rnd_ports.append(p2)
     bh_ports.append(p3)
 
-print("\n=== Evaluation over multiple random 5-day episodes ===")
+print("\nEvaluation over multiple random 5-day episodes")
 print("DQN:", summarize(dqn_ports))
 print("Random:", summarize(rnd_ports))
 print("Buy&Hold:", summarize(bh_ports))
@@ -318,22 +328,42 @@ print("Buy&Hold:", summarize(bh_ports))
 # Plot one example DQN episode for visualization
 example_env, example_portfolio = run_episode(policy_dqn, seed=SEED)
 prices = example_env.episode_df["Close"].values.tolist()
+port = example_portfolio[:len(prices)]
 
 plt.figure(figsize=(14, 6))
-plt.plot(prices, label=f"{TICKER} Price", alpha=0.6)
-plt.plot(example_portfolio[:len(prices)], label="Portfolio Value", linestyle="--")
+ax1 = plt.gca()
+ax2 = ax1.twinx()
 
-for step, price, act in example_env.trades:
+# Lines
+ax1.plot(prices, alpha=0.6, label=f"{TICKER} Price")
+ax2.plot(port, linestyle="--", label="Portfolio Value")
+
+# Trades (plot on the PRICE axis so markers match price scale)
+buy_labeled = False
+sell_labeled = False
+for step, trade_price, act in example_env.trades:
     if act == "buy":
-        plt.plot(step, price, marker="^", color="green", label="Buy")
+        ax1.plot(step, trade_price, marker="^", color="green",
+                 label="Buy" if not buy_labeled else None)
+        buy_labeled = True
     elif act == "sell":
-        plt.plot(step, price, marker="v", color="red", label="Sell")
+        ax1.plot(step, trade_price, marker="v", color="red",
+                 label="Sell" if not sell_labeled else None)
+        sell_labeled = True
 
+# Labels
+ax1.set_xlabel("Time Step")
+ax1.set_ylabel("Price ($)")
+ax2.set_ylabel("Portfolio ($)")
+
+# Legend (combine both axes)
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+
+ax1.grid(True)
 plt.title(f"DQN Trading Example ({TICKER}, {INTERVAL} candles, {EPISODE_DAYS}-day episode)")
-plt.xlabel("Time Step")
-plt.ylabel("Price / Portfolio Value")
-plt.legend()
-plt.grid(True)
 plt.tight_layout()
 plt.savefig("trading_results.png")
+
 
